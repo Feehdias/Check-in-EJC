@@ -11,19 +11,40 @@
     .ok { background: #d4edda; color: #155724; }
     .aviso { background: #fff3cd; color: #856404; }
     .erro { background: #f8d7da; color: #721c24; }
+    #iniciarBtn {
+      padding: 16px 32px; font-size: 18px; margin-top: 30px;
+      border-radius: 8px; border: none; background: #4285f4; color: white;
+    }
   </style>
 </head>
 <body>
   <h2>Check-in EJC</h2>
-  <div id="reader" style="width:100%"></div>
+
+  <button id="iniciarBtn">📷 Iniciar Leitura</button>
+  <div id="reader" style="width:100%; margin-top:20px;"></div>
   <div id="resultado"></div>
 
   <script>
-    // SUBSTITUA pela URL do seu Apps Script (Etapa 3)
-    cconst API_URL = "https://script.google.com/macros/s/AKfycbx78rgHUib1pQFznNsi4W5TCdDgbyP3ZML5YgGJXddKd-Ru4zg0yXBoOTt6IccJ4D4fsA/exec";
+    const API_URL = "https://script.google.com/macros/s/AKfycbx78rgHUib1pQFznNsi4W5TCdDgbyP3ZML5YgGJXddKd-Ru4zg0yXBoOTt6IccJ4D4fsA/exec";
 
     const resultadoDiv = document.getElementById("resultado");
+    const iniciarBtn = document.getElementById("iniciarBtn");
     let processando = false;
+    let scanner;
+
+    iniciarBtn.addEventListener("click", () => {
+      iniciarBtn.style.display = "none";
+      scanner = new Html5Qrcode("reader");
+      scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: 250 },
+        onScanSuccess
+      ).catch(err => {
+        resultadoDiv.style.display = "block";
+        resultadoDiv.className = "erro";
+        resultadoDiv.innerHTML = "❌ Não foi possível acessar a câmera: " + err;
+      });
+    });
 
     function onScanSuccess(codigo) {
       if (processando) return;
@@ -57,9 +78,6 @@
       }
       setTimeout(() => { resultadoDiv.style.display = "none"; processando = false; }, 3000);
     }
-
-    const scanner = new Html5Qrcode("reader");
-    scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, onScanSuccess);
   </script>
 </body>
 </html>
