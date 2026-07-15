@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Check-in EJC</title>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; padding: 10px; }
+    #resultado { margin-top: 20px; padding: 20px; border-radius: 10px; font-size: 18px; display: none; }
+    .ok { background: #d4edda; color: #155724; }
+    .aviso { background: #fff3cd; color: #856404; }
+    .erro { background: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+  <h2>Check-in EJC</h2>
+  <div id="reader" style="width:100%"></div>
+  <div id="resultado"></div>
+
+  <script>
+    // SUBSTITUA pela URL do seu Apps Script (Etapa 3)
+    const API_URL = "COLE_AQUI_A_URL_DO_APPS_SCRIPT";
+
+    const resultadoDiv = document.getElementById("resultado");
+    let processando = false;
+
+    function onScanSuccess(codigo) {
+      if (processando) return;
+      processando = true;
+
+      fetch(API_URL + "?codigo=" + encodeURIComponent(codigo))
+        .then(res => res.json())
+        .then(mostrarResultado)
+        .catch(() => {
+          resultadoDiv.style.display = "block";
+          resultadoDiv.className = "erro";
+          resultadoDiv.innerHTML = "❌ Erro de conexão. Tente novamente.";
+          setTimeout(() => { resultadoDiv.style.display = "none"; processando = false; }, 3000);
+        });
+    }
+
+    function mostrarResultado(res) {
+      resultadoDiv.style.display = "block";
+      if (res.status === "ok") {
+        resultadoDiv.className = "ok";
+        resultadoDiv.innerHTML = "✅ LIBERADO<br>" + res.nome + " - " + res.qtd + " hambúrguer(es)";
+      } else if (res.status === "ja_retirado") {
+        resultadoDiv.className = "aviso";
+        resultadoDiv.innerHTML = "⚠️ JÁ RETIRADO<br>" + res.nome;
+      } else if (res.status === "nao_pago") {
+        resultadoDiv.className = "aviso";
+        resultadoDiv.innerHTML = "⚠️ PAGAMENTO NÃO CONFIRMADO<br>" + res.nome;
+      } else {
+        resultadoDiv.className = "erro";
+        resultadoDiv.innerHTML = "❌ CÓDIGO NÃO ENCONTRADO";
+      }
+      setTimeout(() => { resultadoDiv.style.display = "none"; processando = false; }, 3000);
+    }
+
+    const scanner = new Html5Qrcode("reader");
+    scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, onScanSuccess);
+  </script>
+</body>
+</html>
