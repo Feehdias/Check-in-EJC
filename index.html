@@ -11,10 +11,16 @@
     .ok { background: #d4edda; color: #155724; }
     .aviso { background: #fff3cd; color: #856404; }
     .erro { background: #f8d7da; color: #721c24; }
-    #iniciarBtn {
-      padding: 16px 32px; font-size: 18px; margin-top: 30px;
-      border-radius: 8px; border: none; background: #4285f4; color: white;
+    button {
+      padding: 14px 28px; font-size: 18px; border-radius: 8px;
+      border: none; background: #4285f4; color: white;
     }
+    #manual { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ccc; }
+    #codigoInput {
+      padding: 12px; font-size: 18px; width: 70%; max-width: 260px;
+      border: 1px solid #999; border-radius: 8px; text-transform: uppercase;
+    }
+    #validarBtn { margin-top: 12px; background: #34a853; }
   </style>
 </head>
 <body>
@@ -22,6 +28,14 @@
 
   <button id="iniciarBtn">📷 Iniciar Leitura</button>
   <div id="reader" style="width:100%; margin-top:20px;"></div>
+
+  <div id="manual">
+    <p>Sem conseguir ler o QR Code? Digite o código:</p>
+    <input id="codigoInput" type="text" placeholder="EJC-0001" autocomplete="off" autocapitalize="characters">
+    <br>
+    <button id="validarBtn">✔ Validar código</button>
+  </div>
+
   <div id="resultado"></div>
 
   <script>
@@ -29,8 +43,19 @@
 
     const resultadoDiv = document.getElementById("resultado");
     const iniciarBtn = document.getElementById("iniciarBtn");
+    const codigoInput = document.getElementById("codigoInput");
+    const validarBtn = document.getElementById("validarBtn");
     let processando = false;
     let scanner;
+
+    // Aceita "ejc-0005", " EJC-0005 " ou só "5"
+    function normalizarCodigo(texto) {
+      let c = String(texto).trim().toUpperCase();
+      if (/^\d+$/.test(c)) {
+        c = "EJC-" + c.padStart(4, "0");
+      }
+      return c;
+    }
 
     iniciarBtn.addEventListener("click", () => {
       iniciarBtn.style.display = "none";
@@ -38,17 +63,28 @@
       scanner.start(
         { facingMode: "environment" },
         { fps: 10, qrbox: 250 },
-        onScanSuccess
+        (codigo) => validar(codigo)
       ).catch(err => {
         resultadoDiv.style.display = "block";
         resultadoDiv.className = "erro";
-        resultadoDiv.innerHTML = "❌ Não foi possível acessar a câmera: " + err;
+        resultadoDiv.innerHTML = "❌ Não foi possível acessar a câmera. Use a digitação do código abaixo.";
       });
     });
 
-    function onScanSuccess(codigo) {
+    validarBtn.addEventListener("click", () => {
+      const texto = codigoInput.value;
+      if (!texto.trim()) return;
+      validar(texto);
+    });
+
+    codigoInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") validarBtn.click();
+    });
+
+    function validar(texto) {
       if (processando) return;
       processando = true;
+      const codigo = normalizarCodigo(texto);
 
       fetch(API_URL + "?codigo=" + encodeURIComponent(codigo))
         .then(res => res.json())
@@ -76,6 +112,7 @@
         resultadoDiv.className = "erro";
         resultadoDiv.innerHTML = "❌ CÓDIGO NÃO ENCONTRADO";
       }
+      codigoInput.value = "";
       setTimeout(() => { resultadoDiv.style.display = "none"; processando = false; }, 3000);
     }
   </script>
