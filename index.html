@@ -13,28 +13,43 @@
     .erro { background: #f8d7da; color: #721c24; }
     button {
       padding: 14px 28px; font-size: 18px; border-radius: 8px;
-      border: none; background: #4285f4; color: white;
+      border: none; background: #4285f4; color: white; margin-top: 8px;
     }
-    #manual { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ccc; }
-    #codigoInput {
-      padding: 12px; font-size: 18px; width: 70%; max-width: 260px;
-      border: 1px solid #999; border-radius: 8px; text-transform: uppercase;
-    }
-    #validarBtn { margin-top: 12px; background: #34a853; }
+    button:disabled { opacity: 0.5; }
+    .verde { background: #34a853; }
+    section { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ccc; }
+    input { padding: 12px; font-size: 18px; border: 1px solid #999; border-radius: 8px; }
+    #codigoInput { width: 70%; max-width: 260px; text-transform: uppercase; }
+    #qtdVenda { width: 90px; text-align: center; }
+    #estoque { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 10px; }
+    .box { background: #f1f3f4; border-radius: 10px; padding: 8px 12px; min-width: 130px; }
+    .box b { display: block; font-size: 26px; }
+    .box span { font-size: 12px; color: #555; }
+    .box.destaque { background: #d4edda; }
+    .box.zero { background: #f8d7da; }
   </style>
 </head>
 <body>
   <h2>Check-in EJC</h2>
 
+  <div id="estoque"></div>
+
   <button id="iniciarBtn">📷 Iniciar Leitura</button>
   <div id="reader" style="width:100%; margin-top:20px;"></div>
 
-  <div id="manual">
+  <section>
     <p>Sem conseguir ler o QR Code? Digite o código:</p>
-    <input id="codigoInput" type="text" placeholder="EJC-0001" autocomplete="off" autocapitalize="characters">
+    <input id="codigoInput" type="text" placeholder="EJC-0001-K7" autocomplete="off" autocapitalize="characters">
     <br>
-    <button id="validarBtn">✔ Validar código</button>
-  </div>
+    <button id="validarBtn" class="verde">✔ Validar código</button>
+  </section>
+
+  <section>
+    <p><b>Venda na hora</b> (sem reserva)</p>
+    <input id="qtdVenda" type="number" min="1" max="50" value="1" inputmode="numeric">
+    <br>
+    <button id="vendaBtn" class="verde">🛒 Registrar venda</button>
+  </section>
 
   <div id="resultado"></div>
 
@@ -45,18 +60,65 @@
     const iniciarBtn = document.getElementById("iniciarBtn");
     const codigoInput = document.getElementById("codigoInput");
     const validarBtn = document.getElementById("validarBtn");
+    const qtdVenda = document.getElementById("qtdVenda");
+    const vendaBtn = document.getElementById("vendaBtn");
     let processando = false;
+    let vendendo = false;
+    let senha = "";
     let scanner;
 
-    // Aceita "ejc-0005", " EJC-0005 " ou só "5"
-    function normalizarCodigo(texto) {
-      let c = String(texto).trim().toUpperCase();
-      if (/^\d+$/.test(c)) {
-        c = "EJC-" + c.padStart(4, "0");
-      }
-      return c;
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, c => (
+        { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+      ));
     }
 
+    // Aceita "ejc0005k7", "EJC 0005 K7" ou "EJC-0005-K7". Códigos antigos (EJC-0005) também.
+    function normalizarCodigo(texto) {
+      const c = String(texto).trim().toUpperCase().replace(/[\s-]+/g, "");
+      const m = c.match(/^EJC(\d{4})([A-Z0-9]{2})?$/);
+      if (!m) return String(texto).trim().toUpperCase();
+      return "EJC-" + m[1] + (m[2] ? "-" + m[2] : "");
+    }
+
+    function liberar() {
+      resultadoDiv.style.display = "none";
+      processando = false;
+    }
+
+    function mostrar(classe, html, auto) {
+      resultadoDiv.style.display = "block";
+      resultadoDiv.className = classe;
+      resultadoDiv.innerHTML = html;
+      if (auto) setTimeout(liberar, 3000);
+    }
+
+    function chamar(params) {
+      const qs = new URLSearchParams(params).toString();
+      return fetch(API_URL + "?" + qs).then(r => r.json());
+    }
+
+    function erroConexao() {
+      mostrar("erro", "❌ Erro de conexão. Tente novamente.", true);
+    }
+
+    // ----- Estoque -----
+    function renderEstoque(e) {
+      const classe = e.disponivel <= 0 ? " zero" : " destaque";
+      document.getElementById("estoque").innerHTML =
+        "<div class='box" + classe + "'><b>" + e.disponivel + "</b><span>Disponível p/ venda na hora</span></div>" +
+        "<div class='box'><b>" + e.aguardando + "</b><span>Reservas aguardando retirada</span></div>" +
+        "<div class='box'><b>" + e.restante + "</b><span>Estoque restante total</span></div>" +
+        "<div class='box'><b>" + e.vendidos + "</b><span>Vendidos na hora</span></div>";
+    }
+
+    function atualizarEstoque() {
+      chamar({ acao: "estoque" })
+        .then(r => { if (r.estoque) renderEstoque(r.estoque); })
+        .catch(() => {});
+    }
+
+    // ----- Câmera -----
     iniciarBtn.addEventListener("click", () => {
       iniciarBtn.style.display = "none";
       scanner = new Html5Qrcode("reader");
@@ -64,17 +126,15 @@
         { facingMode: "environment" },
         { fps: 10, qrbox: 250 },
         (codigo) => validar(codigo)
-      ).catch(err => {
-        resultadoDiv.style.display = "block";
-        resultadoDiv.className = "erro";
-        resultadoDiv.innerHTML = "❌ Não foi possível acessar a câmera. Use a digitação do código abaixo.";
+      ).catch(() => {
+        mostrar("erro", "❌ Não foi possível acessar a câmera. Use a digitação do código abaixo.", false);
       });
     });
 
+    // ----- Validação por código -----
     validarBtn.addEventListener("click", () => {
-      const texto = codigoInput.value;
-      if (!texto.trim()) return;
-      validar(texto);
+      if (!codigoInput.value.trim()) return;
+      validar(codigoInput.value);
     });
 
     codigoInput.addEventListener("keydown", (e) => {
@@ -84,37 +144,58 @@
     function validar(texto) {
       if (processando) return;
       processando = true;
-      const codigo = normalizarCodigo(texto);
-
-      fetch(API_URL + "?codigo=" + encodeURIComponent(codigo))
-        .then(res => res.json())
-        .then(mostrarResultado)
-        .catch(() => {
-          resultadoDiv.style.display = "block";
-          resultadoDiv.className = "erro";
-          resultadoDiv.innerHTML = "❌ Erro de conexão. Tente novamente.";
-          setTimeout(() => { resultadoDiv.style.display = "none"; processando = false; }, 3000);
-        });
+      chamar({ codigo: normalizarCodigo(texto) }).then(mostrarResultado).catch(erroConexao);
     }
 
     function mostrarResultado(res) {
-      resultadoDiv.style.display = "block";
-      if (res.status === "ok") {
-        resultadoDiv.className = "ok";
-        resultadoDiv.innerHTML = "✅ LIBERADO<br>" + res.nome + " - " + res.qtd + " hambúrguer(es)";
-      } else if (res.status === "ja_retirado") {
-        resultadoDiv.className = "aviso";
-        resultadoDiv.innerHTML = "⚠️ JÁ RETIRADO<br>" + res.nome;
-      } else if (res.status === "nao_pago") {
-        resultadoDiv.className = "aviso";
-        resultadoDiv.innerHTML = "⚠️ PAGAMENTO NÃO CONFIRMADO<br>" + res.nome;
-      } else {
-        resultadoDiv.className = "erro";
-        resultadoDiv.innerHTML = "❌ CÓDIGO NÃO ENCONTRADO";
-      }
       codigoInput.value = "";
-      setTimeout(() => { resultadoDiv.style.display = "none"; processando = false; }, 3000);
+      if (res.status === "ok") {
+        mostrar("ok", "✅ LIBERADO<br>" + esc(res.nome) + " - " + esc(res.qtd) + " hambúrguer(es)", true);
+        atualizarEstoque();
+      } else if (res.status === "ja_retirado") {
+        mostrar("aviso", "⚠️ JÁ RETIRADO<br>" + esc(res.nome), true);
+      } else if (res.status === "nao_pago") {
+        mostrar("aviso", "⚠️ PAGAMENTO NÃO CONFIRMADO<br>" + esc(res.nome), true);
+      } else {
+        mostrar("erro", "❌ CÓDIGO NÃO ENCONTRADO", true);
+      }
     }
+
+    // ----- Venda na hora -----
+    vendaBtn.addEventListener("click", () => {
+      if (vendendo) return;
+      const qtd = parseInt(qtdVenda.value, 10);
+      if (!qtd || qtd < 1) return;
+      if (!senha) senha = prompt("Senha do responsável financeiro:") || "";
+      if (!senha) return;
+      if (!confirm("Registrar venda de " + qtd + " hambúrguer(es)?")) return;
+
+      vendendo = true;
+      vendaBtn.disabled = true;
+      chamar({ acao: "venda", qtd: qtd, senha: senha })
+        .then(res => {
+          if (res.status === "senha_invalida") {
+            senha = "";
+            mostrar("erro", "❌ Senha incorreta.", true);
+          } else if (res.status === "sem_estoque") {
+            renderEstoque(res.estoque);
+            mostrar("erro", "❌ Sem estoque suficiente. Restam " + res.estoque.disponivel + " para venda na hora.", true);
+          } else if (res.status === "quantidade_invalida") {
+            mostrar("erro", "❌ Quantidade inválida.", true);
+          } else if (res.status === "sem_controle") {
+            mostrar("erro", "❌ Abas de controle não encontradas. Rode configurarControle no Apps Script.", false);
+          } else {
+            renderEstoque(res.estoque);
+            qtdVenda.value = 1;
+            mostrar("ok", "✅ VENDA REGISTRADA<br>" + esc(res.qtd) + " hambúrguer(es)<br>" +
+              "<small>Restam " + res.estoque.disponivel + " para venda na hora</small>", true);
+          }
+        })
+        .catch(erroConexao)
+        .finally(() => { vendendo = false; vendaBtn.disabled = false; });
+    });
+
+    atualizarEstoque();
   </script>
 </body>
 </html>
