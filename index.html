@@ -7,24 +7,38 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; text-align: center; padding: 10px; }
-    #resultado { margin-top: 20px; padding: 20px; border-radius: 10px; font-size: 18px; display: none; }
-    .ok { background: #d4edda; color: #155724; }
-    .aviso { background: #fff3cd; color: #856404; }
-    .erro { background: #f8d7da; color: #721c24; }
+
+    /* Resultado: faixa fixa no topo, sempre visível */
+    #resultado {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+      display: none; padding: 24px 16px 20px; font-size: 28px; font-weight: bold;
+      box-shadow: 0 6px 20px rgba(0,0,0,.4); border-bottom: 6px solid rgba(0,0,0,.25);
+    }
+    #resultado small { font-size: 18px; font-weight: normal; }
+    .ok { background: #2e7d32; color: #fff; }
+    .aviso { background: #f9a825; color: #222; }
+    .erro { background: #c62828; color: #fff; }
+
     button {
       padding: 14px 28px; font-size: 18px; border-radius: 8px;
       border: none; background: #4285f4; color: white; margin-top: 8px;
     }
     button:disabled { opacity: 0.5; }
     .verde { background: #34a853; }
+    .claro { background: #fff; color: #222; border: 2px solid #222; }
+    #resultado button { margin: 10px 4px 0; }
+
     section { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ccc; }
     input { padding: 12px; font-size: 18px; border: 1px solid #999; border-radius: 8px; }
     #codigoInput { width: 70%; max-width: 260px; text-transform: uppercase; }
     #qtdVenda { width: 90px; text-align: center; }
-    #estoque { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 10px; }
-    .box { background: #f1f3f4; border-radius: 10px; padding: 8px 12px; min-width: 130px; }
-    .box b { display: block; font-size: 26px; }
+
+    #estoque h3 { margin: 10px 0 4px; font-size: 14px; color: #555; text-transform: uppercase; }
+    .linha { display: flex; gap: 8px; justify-content: center; margin-bottom: 6px; }
+    .box { flex: 1; max-width: 140px; background: #f1f3f4; border-radius: 10px; padding: 8px 4px; }
+    .box b { display: block; font-size: 28px; }
     .box span { font-size: 12px; color: #555; }
+    .box small { display: block; font-size: 11px; color: #777; }
     .box.destaque { background: #d4edda; }
     .box.zero { background: #f8d7da; }
   </style>
@@ -64,6 +78,8 @@
     const vendaBtn = document.getElementById("vendaBtn");
     let processando = false;
     let vendendo = false;
+    let bloqueioAte = 0;
+    let ultimoCodigo = "";
     let senha = "";
     let scanner;
 
@@ -81,16 +97,20 @@
       return "EJC-" + m[1] + (m[2] ? "-" + m[2] : "");
     }
 
+    // ----- Faixa de resultado (fica até tocar em OK) -----
     function liberar() {
       resultadoDiv.style.display = "none";
       processando = false;
+      bloqueioAte = Date.now() + 2500; // evita reler o mesmo QR logo após fechar
     }
 
-    function mostrar(classe, html, auto) {
-      resultadoDiv.style.display = "block";
+    function mostrar(classe, html, botoes) {
       resultadoDiv.className = classe;
-      resultadoDiv.innerHTML = html;
-      if (auto) setTimeout(liberar, 3000);
+      resultadoDiv.innerHTML = html + "<div>" +
+        (botoes || "<button class='claro' onclick='liberar()'>OK</button>") + "</div>";
+      resultadoDiv.style.display = "block";
+      window.scrollTo(0, 0);
+      if (navigator.vibrate) navigator.vibrate(classe === "ok" ? 150 : [200, 100, 200]);
     }
 
     function chamar(params) {
@@ -99,22 +119,41 @@
     }
 
     function erroConexao() {
-      mostrar("erro", "❌ Erro de conexão. Tente novamente.", true);
+      mostrar("erro", "❌ ERRO DE CONEXÃO<br><small>Confira a internet e tente de novo.</small>");
     }
 
-    // ----- Estoque -----
+    function pedirSenha() {
+      if (!senha) senha = prompt("Senha do responsável financeiro:") || "";
+      return senha;
+    }
+
+    // ----- Painel de estoque -----
     function renderEstoque(e) {
-      const classe = e.disponivel <= 0 ? " zero" : " destaque";
+      const classeSem = e.disponivel <= 0 ? " zero" : " destaque";
       document.getElementById("estoque").innerHTML =
-        "<div class='box" + classe + "'><b>" + e.disponivel + "</b><span>Disponível p/ venda na hora</span></div>" +
-        "<div class='box'><b>" + e.aguardando + "</b><span>Reservas aguardando retirada</span></div>" +
-        "<div class='box'><b>" + e.restante + "</b><span>Estoque restante total</span></div>" +
-        "<div class='box'><b>" + e.vendidos + "</b><span>Vendidos na hora</span></div>";
+        "<h3>Totais</h3>" +
+        "<div class='linha'>" +
+          "<div class='box'><b>" + e.total + "</b><span>Produzidos</span></div>" +
+          "<div class='box'><b>" + e.reservado + "</b><span>Reservados</span><small>" + e.retirados + " já retirados</small></div>" +
+          "<div class='box'><b>" + e.adicional + "</b><span>Sem reserva</span><small>" + e.vendidos + " já vendidos</small></div>" +
+        "</div>" +
+        "<h3>Ainda disponíveis</h3>" +
+        "<div class='linha'>" +
+          "<div class='box'><b>" + e.aguardando + "</b><span>Reservas a retirar</span></div>" +
+          "<div class='box" + classeSem + "'><b>" + e.disponivel + "</b><span>Sem reserva disponível</span></div>" +
+          "<div class='box'><b>" + e.restante + "</b><span>Total restante</span></div>" +
+        "</div>";
     }
 
     function atualizarEstoque() {
       chamar({ acao: "estoque" })
-        .then(r => { if (r.estoque) renderEstoque(r.estoque); })
+        .then(r => {
+          if (r.estoque) renderEstoque(r.estoque);
+          else if (r.status === "sem_controle") {
+            document.getElementById("estoque").innerHTML =
+              "<p>⚠️ Abas de controle não encontradas. Rode <b>configurarControle</b> no Apps Script.</p>";
+          }
+        })
         .catch(() => {});
     }
 
@@ -125,49 +164,73 @@
       scanner.start(
         { facingMode: "environment" },
         { fps: 10, qrbox: 250 },
-        (codigo) => validar(codigo)
+        (codigo) => validar(codigo, true)
       ).catch(() => {
-        mostrar("erro", "❌ Não foi possível acessar a câmera. Use a digitação do código abaixo.", false);
+        mostrar("erro", "❌ Não foi possível acessar a câmera<br><small>Use a digitação do código.</small>");
       });
     });
 
     // ----- Validação por código -----
     validarBtn.addEventListener("click", () => {
       if (!codigoInput.value.trim()) return;
-      validar(codigoInput.value);
+      validar(codigoInput.value, false);
     });
 
     codigoInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") validarBtn.click();
     });
 
-    function validar(texto) {
+    function validar(texto, daCamera) {
       if (processando) return;
+      if (daCamera && Date.now() < bloqueioAte) return;
       processando = true;
-      chamar({ codigo: normalizarCodigo(texto) }).then(mostrarResultado).catch(erroConexao);
+      ultimoCodigo = normalizarCodigo(texto);
+      chamar({ codigo: ultimoCodigo }).then(mostrarResultado).catch(erroConexao);
+    }
+
+    // ----- Pagamento na hora -----
+    function confirmarPagamento() {
+      if (!pedirSenha()) return;
+      chamar({ acao: "pagar", codigo: ultimoCodigo, senha: senha })
+        .then(res => {
+          if (res.status === "senha_invalida") {
+            senha = "";
+            mostrar("erro", "❌ SENHA INCORRETA",
+              "<button class='claro' onclick='confirmarPagamento()'>Tentar de novo</button>" +
+              "<button class='claro' onclick='liberar()'>Cancelar</button>");
+          } else {
+            mostrarResultado(res);
+          }
+        })
+        .catch(erroConexao);
     }
 
     function mostrarResultado(res) {
       codigoInput.value = "";
       if (res.status === "ok") {
-        mostrar("ok", "✅ LIBERADO<br>" + esc(res.nome) + " - " + esc(res.qtd) + " hambúrguer(es)", true);
+        mostrar("ok", "✅ LIBERADO<br>" + esc(res.nome) + "<br>" + esc(res.qtd) + " hambúrguer(es)" +
+          (res.pagoAgora ? "<br><small>Pagamento registrado agora</small>" : ""));
         atualizarEstoque();
       } else if (res.status === "ja_retirado") {
-        mostrar("aviso", "⚠️ JÁ RETIRADO<br>" + esc(res.nome), true);
+        mostrar("aviso", "⚠️ JÁ RETIRADO<br>" + esc(res.nome));
       } else if (res.status === "nao_pago") {
-        mostrar("aviso", "⚠️ PAGAMENTO NÃO CONFIRMADO<br>" + esc(res.nome), true);
+        mostrar("aviso",
+          "⚠️ PAGAMENTO NÃO CONFIRMADO<br>" + esc(res.nome) + "<br>" + esc(res.qtd || "") + " hambúrguer(es)",
+          "<button class='verde' onclick='confirmarPagamento()'>💵 Recebi o pagamento e liberar</button>" +
+          "<button class='claro' onclick='liberar()'>Cancelar</button>");
+      } else if (res.status === "nao_encontrado") {
+        mostrar("erro", "❌ CÓDIGO NÃO ENCONTRADO");
       } else {
-        mostrar("erro", "❌ CÓDIGO NÃO ENCONTRADO", true);
+        mostrar("erro", "❌ Resposta inesperada do servidor");
       }
     }
 
-    // ----- Venda na hora -----
+    // ----- Venda sem reserva -----
     vendaBtn.addEventListener("click", () => {
       if (vendendo) return;
       const qtd = parseInt(qtdVenda.value, 10);
       if (!qtd || qtd < 1) return;
-      if (!senha) senha = prompt("Senha do responsável financeiro:") || "";
-      if (!senha) return;
+      if (!pedirSenha()) return;
       if (!confirm("Registrar venda de " + qtd + " hambúrguer(es)?")) return;
 
       vendendo = true;
@@ -176,19 +239,19 @@
         .then(res => {
           if (res.status === "senha_invalida") {
             senha = "";
-            mostrar("erro", "❌ Senha incorreta.", true);
+            mostrar("erro", "❌ SENHA INCORRETA");
           } else if (res.status === "sem_estoque") {
             renderEstoque(res.estoque);
-            mostrar("erro", "❌ Sem estoque suficiente. Restam " + res.estoque.disponivel + " para venda na hora.", true);
+            mostrar("erro", "❌ SEM ESTOQUE<br><small>Restam " + res.estoque.disponivel + " para venda sem reserva.</small>");
           } else if (res.status === "quantidade_invalida") {
-            mostrar("erro", "❌ Quantidade inválida.", true);
+            mostrar("erro", "❌ QUANTIDADE INVÁLIDA");
           } else if (res.status === "sem_controle") {
-            mostrar("erro", "❌ Abas de controle não encontradas. Rode configurarControle no Apps Script.", false);
+            mostrar("erro", "❌ Abas de controle não encontradas<br><small>Rode configurarControle no Apps Script.</small>");
           } else {
             renderEstoque(res.estoque);
             qtdVenda.value = 1;
             mostrar("ok", "✅ VENDA REGISTRADA<br>" + esc(res.qtd) + " hambúrguer(es)<br>" +
-              "<small>Restam " + res.estoque.disponivel + " para venda na hora</small>", true);
+              "<small>Restam " + res.estoque.disponivel + " para venda sem reserva</small>");
           }
         })
         .catch(erroConexao)
@@ -196,6 +259,7 @@
     });
 
     atualizarEstoque();
+    setInterval(atualizarEstoque, 30000);
   </script>
 </body>
 </html>
